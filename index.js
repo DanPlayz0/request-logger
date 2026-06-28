@@ -6,6 +6,7 @@ const app = express();
 const database = new Pool(
   process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {}
 );
+let isDatabaseConnected = false;
 
 app.use(express.json());
 app.set("trust proxy", 1);
@@ -93,6 +94,7 @@ async function insertRequestLog({
   durationMs,
 }) {
   if (process.env.DEVELOPMENT) return;
+  if (!isDatabaseConnected) return;
   await database.query(
     `INSERT INTO request_logger
       (created_at, ip_address, socket_ip_address, method, url, protocol, host,
@@ -125,7 +127,15 @@ async function insertRequestLog({
 }
 
 app.use((req, res) => {
-  return res.status(404).send("404 - Page Not Found");
+  if (process.env.REDIRECT_URL) {
+    if (process.env.REDIRECT_LOG === "true") 
+      console.log(`Redirecting ${req.originalUrl} to ${process.env.REDIRECT_URL}${req.originalUrl}`);
+    if (process.env.REDIRECT_STATIC != "true") 
+      return res.redirect(`${process.env.REDIRECT_URL}${req.originalUrl}`);
+    return res.redirect(process.env.REDIRECT_URL);
+  }
+
+  return res.status(404).send("<pre style=\"word-wrap: break-word; white-space: pre-wrap;\">404 page not found</pre>");
 });
 
 const port = process.env.PORT || 3000;
@@ -134,8 +144,10 @@ app.listen(port, async () => {
   console.log(`Server is running on port ${port}`);
   try {
     await createSchema();
+    isDatabaseConnected = true;
     console.log("Database schema is ready.");
   } catch (error) {
+    isDatabaseConnected = false;
     console.error("Failed to create database schema:", errorMessage(error));
   }
 });
